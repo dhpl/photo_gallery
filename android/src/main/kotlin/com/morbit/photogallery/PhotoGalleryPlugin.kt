@@ -15,11 +15,9 @@ import android.provider.MediaStore
 import android.content.Context
 import android.database.Cursor
 import android.database.Cursor.FIELD_TYPE_INTEGER
-import android.graphics.ImageDecoder
 import android.os.AsyncTask
 import android.os.Build
 import android.util.Size
-import java.io.FileOutputStream
 
 /** PhotoGalleryPlugin */
 class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
@@ -58,7 +56,6 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.WIDTH,
             MediaStore.Images.Media.HEIGHT,
-            MediaStore.Images.Media.ORIENTATION,
             MediaStore.Images.Media.MIME_TYPE,
             MediaStore.Images.Media.DATE_TAKEN,
             MediaStore.Images.Media.DATE_MODIFIED
@@ -68,7 +65,6 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.WIDTH,
             MediaStore.Video.Media.HEIGHT,
-            MediaStore.Video.Media.ORIENTATION,
             MediaStore.Video.Media.MIME_TYPE,
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.DATE_TAKEN,
@@ -122,9 +118,8 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
                 val mediumType = call.argument<String>("mediumType")
                 val width = call.argument<Int>("width")
                 val height = call.argument<Int>("height")
-                val highQuality = call.argument<Boolean>("highQuality")
                 BackgroundAsyncTask({
-                    getThumbnail(mediumId!!, mediumType, width, height, highQuality)
+                    getThumbnail(mediumId!!, mediumType, width, height)
                 }, { v ->
                     result.success(v)
                 })
@@ -134,9 +129,8 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
                 val mediumType = call.argument<String>("mediumType")
                 val width = call.argument<Int>("width")
                 val height = call.argument<Int>("height")
-                val highQuality = call.argument<Boolean>("highQuality")
                 BackgroundAsyncTask({
-                    getAlbumThumbnail(albumId!!, mediumType, width, height, highQuality)
+                    getAlbumThumbnail(albumId!!, mediumType, width, height)
                 }, { v ->
                     result.success(v)
                 })
@@ -144,9 +138,8 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
             "getFile" -> {
                 val mediumId = call.argument<String>("mediumId")
                 val mediumType = call.argument<String>("mediumType")
-                val mimeType = call.argument<String>("mimeType")
                 BackgroundAsyncTask({
-                    getFile(mediumId!!, mediumType, mimeType)
+                    getFile(mediumId!!, mediumType)
                 }, { v ->
                     result.success(v)
                 })
@@ -294,7 +287,7 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         this.context?.run {
             val imageCursor: Cursor?
 
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 imageCursor = this.contentResolver.query(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     imageMetadataProjection,
@@ -359,7 +352,7 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         this.context?.run {
             val videoCursor: Cursor?
 
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 videoCursor = this.contentResolver.query(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                     videoMetadataProjection,
@@ -473,42 +466,40 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         return videoMetadata
     }
 
-    private fun getThumbnail(mediumId: String, mediumType: String?, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
+    private fun getThumbnail(mediumId: String, mediumType: String?, width: Int?, height: Int?): ByteArray? {
         return when (mediumType) {
             imageType -> {
-                getImageThumbnail(mediumId, width, height, highQuality)
+                getImageThumbnail(mediumId, width, height)
             }
             videoType -> {
-                getVideoThumbnail(mediumId, width, height, highQuality)
+                getVideoThumbnail(mediumId, width, height)
             }
             else -> {
-                getImageThumbnail(mediumId, width, height, highQuality)
-                    ?: getVideoThumbnail(mediumId, width, height, highQuality)
+                getImageThumbnail(mediumId, width, height)
+                    ?: getVideoThumbnail(mediumId, width, height)
             }
         }
     }
 
-    private fun getImageThumbnail(mediumId: String, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
+    private fun getImageThumbnail(mediumId: String, width: Int?, height: Int?): ByteArray? {
         var byteArray: ByteArray? = null
 
         val bitmap: Bitmap? = this.context?.run {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
-                    val widthSize = width ?: if (highQuality == true) 512 else 96
-                    val heightSize = height ?: if (highQuality == true) 384 else 96
                     this.contentResolver.loadThumbnail(
                         ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediumId.toLong()),
-                        Size(widthSize, heightSize),
+                        Size(width ?: 72, height ?: 72),
                         null
                     )
                 } catch (e: Exception) {
                     null
                 }
             } else {
-                val kind = if (highQuality == true) MediaStore.Images.Thumbnails.MINI_KIND else MediaStore.Images.Thumbnails.MICRO_KIND
                 MediaStore.Images.Thumbnails.getThumbnail(
                     this.contentResolver, mediumId.toLong(),
-                    kind, null
+                    MediaStore.Images.Thumbnails.MINI_KIND,
+                    null
                 )
             }
         }
@@ -522,27 +513,25 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         return byteArray
     }
 
-    private fun getVideoThumbnail(mediumId: String, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
+    private fun getVideoThumbnail(mediumId: String, width: Int?, height: Int?): ByteArray? {
         var byteArray: ByteArray? = null
 
         val bitmap: Bitmap? = this.context?.run {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
-                    val widthSize = width ?: if (highQuality == true) 512 else 96
-                    val heightSize = height ?: if (highQuality == true) 384 else 96
                     this.contentResolver.loadThumbnail(
                         ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediumId.toLong()),
-                        Size(widthSize, heightSize),
+                        Size(width ?: 72, height ?: 72),
                         null
                     )
                 } catch (e: Exception) {
                     null
                 }
             } else {
-                val kind = if (highQuality == true) MediaStore.Images.Thumbnails.MINI_KIND else MediaStore.Images.Thumbnails.MICRO_KIND
                 MediaStore.Video.Thumbnails.getThumbnail(
                     this.contentResolver, mediumId.toLong(),
-                    kind,null
+                    MediaStore.Images.Thumbnails.MINI_KIND,
+                    null
                 )
             }
         }
@@ -556,26 +545,26 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         return byteArray
     }
 
-    private fun getAlbumThumbnail(albumId: String, mediumType: String?, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
+    private fun getAlbumThumbnail(albumId: String, mediumType: String?, width: Int?, height: Int?): ByteArray? {
         return when (mediumType) {
             imageType -> {
-                getImageAlbumThumbnail(albumId, width, height, highQuality)
+                getImageAlbumThumbnail(albumId, width, height)
             }
             videoType -> {
-                getVideoAlbumThumbnail(albumId, width, height, highQuality)
+                getVideoAlbumThumbnail(albumId, width, height)
             }
             else -> {
-                getImageAlbumThumbnail(albumId, width, height, highQuality)
-                    ?: getVideoAlbumThumbnail(albumId, width, height, highQuality)
+                getImageAlbumThumbnail(albumId, width, height)
+                    ?: getVideoAlbumThumbnail(albumId, width, height)
             }
         }
     }
 
-    private fun getImageAlbumThumbnail(albumId: String, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
+    private fun getImageAlbumThumbnail(albumId: String, width: Int?, height: Int?): ByteArray? {
         return this.context?.run {
             val imageCursor: Cursor?
 
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 imageCursor = this.contentResolver.query(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     arrayOf(MediaStore.Images.Media._ID),
@@ -616,7 +605,7 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
                 if (cursor.moveToFirst()) {
                     val idColumn = cursor.getColumnIndex(MediaStore.Images.Media._ID)
                     val id = cursor.getLong(idColumn)
-                    return@run getImageThumbnail(id.toString(), width, height, highQuality)
+                    return@run getImageThumbnail(id.toString(), width, height)
                 }
             }
 
@@ -624,11 +613,11 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
-    private fun getVideoAlbumThumbnail(albumId: String, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
+    private fun getVideoAlbumThumbnail(albumId: String, width: Int?, height: Int?): ByteArray? {
         return this.context?.run {
             val videoCursor: Cursor?
 
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 videoCursor = this.contentResolver.query(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                     arrayOf(MediaStore.Video.Media._ID),
@@ -669,7 +658,7 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
                 if (cursor.moveToNext()) {
                     val idColumn = cursor.getColumnIndex(MediaStore.Video.Media._ID)
                     val id = cursor.getLong(idColumn)
-                    return@run getVideoThumbnail(id.toString(), width, height, highQuality)
+                    return@run getVideoThumbnail(id.toString(), width, height)
                 }
             }
 
@@ -677,31 +666,24 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
-    private fun getFile(mediumId: String, mediumType: String?, mimeType: String?): String? {
+    private fun getFile(mediumId: String, mediumType: String?): String? {
         return when (mediumType) {
             imageType -> {
-                getImageFile(mediumId, mimeType = mimeType)
+                getImageFile(mediumId)
             }
             videoType -> {
                 getVideoFile(mediumId)
             }
             else -> {
-                getImageFile(mediumId, mimeType = mimeType) ?: getVideoFile(mediumId)
+                getImageFile(mediumId) ?: getVideoFile(mediumId)
             }
         }
     }
 
-    private fun getImageFile(mediumId: String, mimeType: String? = null): String? {
-        this.context?.run {
-            mimeType?.let {
-                val type = this.contentResolver.getType(
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediumId.toLong())
-                )
-                if (it != type) {
-                    return cacheImage(mediumId, it)
-                }
-            }
+    private fun getImageFile(mediumId: String): String? {
+        var path: String? = null
 
+        this.context?.run {
             val imageCursor = this.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 arrayOf(MediaStore.Images.Media.DATA),
@@ -713,12 +695,12 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
             imageCursor?.use { cursor ->
                 if (cursor.moveToNext()) {
                     val dataColumn = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-                    return cursor.getString(dataColumn)
+                    path = cursor.getString(dataColumn)
                 }
             }
         }
 
-        return null
+        return path
     }
 
     private fun getVideoFile(mediumId: String): String? {
@@ -743,56 +725,10 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         return path
     }
 
-    private fun cacheImage(mediumId: String, mimeType: String): String? {
-        val bitmap: Bitmap? = this.context?.run {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                try {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(
-                        this.contentResolver,
-                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediumId.toLong())
-                    ))
-                } catch (e: Exception) {
-                    null
-                }
-            } else {
-                MediaStore.Images.Media.getBitmap(
-                    this.contentResolver,
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediumId.toLong())
-                )
-            }
-        }
-
-        bitmap?.let {
-            val compressFormat: Bitmap.CompressFormat
-            if (mimeType == "image/jpeg") {
-                val path = File(getCachePath(), "$mediumId.jpeg")
-                val out = FileOutputStream(path)
-                compressFormat = Bitmap.CompressFormat.JPEG
-                it.compress(compressFormat, 100, out)
-                return path.absolutePath
-            } else if (mimeType == "image/png") {
-                val path = File(getCachePath(), "$mediumId.png")
-                val out = FileOutputStream(path)
-                compressFormat = Bitmap.CompressFormat.PNG
-                it.compress(compressFormat, 100, out)
-                return path.absolutePath
-            } else if (mimeType == "image/webp") {
-                val path = File(getCachePath(), "$mediumId.webp")
-                val out = FileOutputStream(path)
-                compressFormat = Bitmap.CompressFormat.WEBP
-                it.compress(compressFormat, 100, out)
-                return path.absolutePath
-            }
-        }
-
-        return null
-    }
-
     private fun getImageMetadata(cursor: Cursor): Map<String, Any?> {
         val idColumn = cursor.getColumnIndex(MediaStore.Images.Media._ID)
         val widthColumn = cursor.getColumnIndex(MediaStore.Images.Media.WIDTH)
         val heightColumn = cursor.getColumnIndex(MediaStore.Images.Media.HEIGHT)
-        val orientationColumn = cursor.getColumnIndex(MediaStore.Images.Media.ORIENTATION)
         val mimeColumn = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
         val dateTakenColumn = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
         val dateModifiedColumn = cursor.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
@@ -800,7 +736,6 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         val id = cursor.getLong(idColumn)
         val width = cursor.getLong(widthColumn)
         val height = cursor.getLong(heightColumn)
-        val orientation = cursor.getLong(orientationColumn)
         val mimeType = cursor.getString(mimeColumn)
         var dateTaken: Long? = null
         if (cursor.getType(dateTakenColumn) == FIELD_TYPE_INTEGER) {
@@ -816,7 +751,6 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
             "mediumType" to imageType,
             "width" to width,
             "height" to height,
-            "orientation" to orientationDegree2Value(orientation),
             "mimeType" to mimeType,
             "creationDate" to dateTaken,
             "modifiedDate" to dateModified
@@ -827,7 +761,6 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         val idColumn = cursor.getColumnIndex(MediaStore.Video.Media._ID)
         val widthColumn = cursor.getColumnIndex(MediaStore.Video.Media.WIDTH)
         val heightColumn = cursor.getColumnIndex(MediaStore.Video.Media.HEIGHT)
-        val orientationColumn = cursor.getColumnIndex(MediaStore.Video.Media.ORIENTATION)
         val mimeColumn = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)
         val durationColumn = cursor.getColumnIndex(MediaStore.Video.Media.DURATION)
         val dateTakenColumn = cursor.getColumnIndex(MediaStore.Video.Media.DATE_TAKEN)
@@ -836,7 +769,6 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
         val id = cursor.getLong(idColumn)
         val width = cursor.getLong(widthColumn)
         val height = cursor.getLong(heightColumn)
-        val orientation = cursor.getLong(orientationColumn)
         val mimeType = cursor.getString(mimeColumn)
         val duration = cursor.getLong(durationColumn)
         var dateTaken: Long? = null
@@ -852,23 +784,12 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler {
             "id" to id.toString(),
             "mediumType" to videoType,
             "width" to width,
-            "orientation" to orientationDegree2Value(orientation),
             "height" to height,
             "mimeType" to mimeType,
             "duration" to duration,
             "creationDate" to dateTaken,
             "modifiedDate" to dateModified
         )
-    }
-
-    private fun orientationDegree2Value(degree: Long): Int {
-        return when (degree) {
-            0L -> 1
-            90L -> 8
-            180L -> 3
-            270L -> 6
-            else -> 0
-        }
     }
 
     private fun getCachePath(): File? {
