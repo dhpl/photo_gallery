@@ -26,6 +26,7 @@ import java.io.FileOutputStream
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.database.MatrixCursor
 
 /** PhotoGalleryPlugin */
 class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
