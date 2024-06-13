@@ -880,16 +880,45 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     null
                 )
             } else {
-                val offset = if (skip != null) "OFFSET $skip" else ""
-                val limit = if (take != null) "LIMIT $take" else ""
-
-                videoCursor = this.contentResolver.query(
+                // For Android 10 and below, we need to handle pagination manually
+                videoCursor = context.contentResolver.query(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                     projection,
                     selection,
                     selectionArgs,
-                    "$orderBy $offset $limit"
+                    orderBy
                 )
+
+                // If both skip and take are specified, we need to handle this manually
+                if (skip != null && take != null && videoCursor != null) {
+                    // Move cursor to the skip position
+                    if (!videoCursor.moveToPosition(skip)) {
+                        videoCursor.close()
+                        return null
+                    }
+
+                    // Create a MatrixCursor to hold the paginated results
+                    val matrixCursor = MatrixCursor(projection)
+                    var count = 0
+
+                    // Copy rows from the original cursor to the MatrixCursor
+                    do {
+                        val row = Array(projection.size) { idx ->
+                            when (videoCursor.getType(idx)) {
+                                Cursor.FIELD_TYPE_INTEGER -> videoCursor.getLong(idx)
+                                Cursor.FIELD_TYPE_FLOAT -> videoCursor.getFloat(idx)
+                                Cursor.FIELD_TYPE_STRING -> videoCursor.getString(idx)
+                                Cursor.FIELD_TYPE_BLOB -> videoCursor.getBlob(idx)
+                                else -> null
+                            }
+                        }
+                        matrixCursor.addRow(row)
+                        count++
+                    } while (videoCursor.moveToNext() && count < take)
+
+                    videoCursor.close()
+                    return matrixCursor
+                }
             }
 
             return videoCursor
